@@ -1,9 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.55.0";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.55.0';
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 interface Product {
@@ -25,35 +25,37 @@ interface InvoiceData {
 }
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
   }
 
   try {
     const supabaseClient = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
       {
         global: {
-          headers: { Authorization: req.headers.get("Authorization")! },
+          headers: { Authorization: req.headers.get('Authorization')! },
         },
-      },
+      }
     );
 
+    // Get user from auth header
     const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
+    
     if (authError || !user) {
       return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        {
-          status: 401,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        },
+        JSON.stringify({ error: 'Unauthorized' }),
+        { 
+          status: 401, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
       );
     }
 
     const invoiceData: InvoiceData = await req.json();
-
-    // Build invoice HTML
+    
+    // Generate simple HTML for PDF
     const invoiceHtml = `
       <!DOCTYPE html>
       <html>
@@ -83,15 +85,18 @@ serve(async (req) => {
             <div class="invoice-title">INVOICE</div>
             <div class="invoice-number">Invoice #${Date.now().toString().slice(-6)}</div>
           </div>
+          
           <div class="user-info">
             <h3>Bill To:</h3>
             <div><strong>${invoiceData.userName}</strong></div>
             <div>${invoiceData.userEmail}</div>
           </div>
+          
           <div class="date">
             <h3>Invoice Date:</h3>
-            <div>${new Date().toLocaleDateString("en-IN", { year: "numeric", month: "long", day: "numeric" })}</div>
+            <div>${new Date().toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
           </div>
+          
           <table>
             <thead>
               <tr>
@@ -111,9 +116,10 @@ serve(async (req) => {
                   <td class="text-right">₹${product.total.toFixed(2)}</td>
                   <td class="text-right">₹${product.gst.toFixed(2)}</td>
                 </tr>
-              `).join("")}
+              `).join('')}
             </tbody>
           </table>
+          
           <div class="summary">
             <table class="summary-table">
               <tr>
@@ -134,45 +140,25 @@ serve(async (req) => {
       </html>
     `;
 
-    // 🔑 Use DocRaptor API
-    const resp = await fetch("https://docraptor.com/docs", {
-      method: "POST",
-      headers: {
-        "Authorization": "Basic " + btoa(Deno.env.get("JCX1o0sGsNtUYH74hR9_") + ":"),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        test: true, // ⚠️ set false in production
-        document_type: "pdf",
-        document_content: invoiceHtml,
-      }),
-    });
-
-    if (!resp.ok) {
-      const errorText = await resp.text();
-      return new Response(JSON.stringify({ error: errorText }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const pdfBuffer = await resp.arrayBuffer();
-
-    return new Response(pdfBuffer, {
+    // For now, return the HTML as a downloadable file
+    // In production, you would use Puppeteer to convert HTML to PDF
+    const blob = new Blob([invoiceHtml], { type: 'text/html' });
+    
+    return new Response(blob, {
       headers: {
         ...corsHeaders,
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="invoice-${Date.now()}.pdf"`,
+        'Content-Type': 'text/html',
+        'Content-Disposition': `attachment; filename="invoice-${Date.now()}.html"`,
       },
     });
 
   } catch (error) {
     return new Response(
       JSON.stringify({ error: error.message }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      },
+      { 
+        status: 500, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      }
     );
   }
-});
+}); // here do the puppeteer coversin from html to pdf too
