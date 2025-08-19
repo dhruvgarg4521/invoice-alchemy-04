@@ -1,12 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.55.0';
-
-// ⚡ Import Puppeteer from npm (works in Deno if you enable npm specifier support)
-import puppeteer from "npm:puppeteer";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.55.0";
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
 interface Product {
@@ -40,7 +37,7 @@ serve(async (req) => {
         global: {
           headers: { Authorization: req.headers.get("Authorization")! },
         },
-      }
+      },
     );
 
     const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
@@ -56,7 +53,7 @@ serve(async (req) => {
 
     const invoiceData: InvoiceData = await req.json();
 
-    // Generate HTML string for invoice
+    // Build invoice HTML
     const invoiceHtml = `
       <!DOCTYPE html>
       <html>
@@ -137,16 +134,29 @@ serve(async (req) => {
       </html>
     `;
 
-    // ✅ Launch Puppeteer to convert HTML -> PDF
-    const browser = await puppeteer.launch({ headless: "new" });
-    const page = await browser.newPage();
-    await page.setContent(invoiceHtml, { waitUntil: "networkidle0" });
-    const pdfBuffer = await page.pdf({
-      format: "A4",
-      printBackground: true,
-      margin: { top: "20px", bottom: "20px", left: "20px", right: "20px" }
+    // 🔑 Use DocRaptor API
+    const resp = await fetch("https://docraptor.com/docs", {
+      method: "POST",
+      headers: {
+        "Authorization": "Basic " + btoa(Deno.env.get("JCX1o0sGsNtUYH74hR9_") + ":"),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        test: true, // ⚠️ set false in production
+        document_type: "pdf",
+        document_content: invoiceHtml,
+      }),
     });
-    await browser.close();
+
+    if (!resp.ok) {
+      const errorText = await resp.text();
+      return new Response(JSON.stringify({ error: errorText }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const pdfBuffer = await resp.arrayBuffer();
 
     return new Response(pdfBuffer, {
       headers: {
