@@ -1,6 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.55.0';
 
+// ⚡ Import Puppeteer from npm (works in Deno if you enable npm specifier support)
+import puppeteer from "npm:puppeteer";
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -25,37 +28,35 @@ interface InvoiceData {
 }
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
   }
 
   try {
     const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
       {
         global: {
-          headers: { Authorization: req.headers.get('Authorization')! },
+          headers: { Authorization: req.headers.get("Authorization")! },
         },
       }
     );
 
-    // Get user from auth header
     const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
-    
     if (authError || !user) {
       return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
-        { 
-          status: 401, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        }
+        JSON.stringify({ error: "Unauthorized" }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
       );
     }
 
     const invoiceData: InvoiceData = await req.json();
-    
-    // Generate simple HTML for PDF
+
+    // Generate HTML string for invoice
     const invoiceHtml = `
       <!DOCTYPE html>
       <html>
@@ -85,18 +86,15 @@ serve(async (req) => {
             <div class="invoice-title">INVOICE</div>
             <div class="invoice-number">Invoice #${Date.now().toString().slice(-6)}</div>
           </div>
-          
           <div class="user-info">
             <h3>Bill To:</h3>
             <div><strong>${invoiceData.userName}</strong></div>
             <div>${invoiceData.userEmail}</div>
           </div>
-          
           <div class="date">
             <h3>Invoice Date:</h3>
-            <div>${new Date().toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+            <div>${new Date().toLocaleDateString("en-IN", { year: "numeric", month: "long", day: "numeric" })}</div>
           </div>
-          
           <table>
             <thead>
               <tr>
@@ -116,10 +114,9 @@ serve(async (req) => {
                   <td class="text-right">₹${product.total.toFixed(2)}</td>
                   <td class="text-right">₹${product.gst.toFixed(2)}</td>
                 </tr>
-              `).join('')}
+              `).join("")}
             </tbody>
           </table>
-          
           <div class="summary">
             <table class="summary-table">
               <tr>
@@ -140,25 +137,32 @@ serve(async (req) => {
       </html>
     `;
 
-    // For now, return the HTML as a downloadable file
-    // In production, you would use Puppeteer to convert HTML to PDF
-    const blob = new Blob([invoiceHtml], { type: 'text/html' });
-    
-    return new Response(blob, {
+    // ✅ Launch Puppeteer to convert HTML -> PDF
+    const browser = await puppeteer.launch({ headless: "new" });
+    const page = await browser.newPage();
+    await page.setContent(invoiceHtml, { waitUntil: "networkidle0" });
+    const pdfBuffer = await page.pdf({
+      format: "A4",
+      printBackground: true,
+      margin: { top: "20px", bottom: "20px", left: "20px", right: "20px" }
+    });
+    await browser.close();
+
+    return new Response(pdfBuffer, {
       headers: {
         ...corsHeaders,
-        'Content-Type': 'text/html',
-        'Content-Disposition': `attachment; filename="invoice-${Date.now()}.html"`,
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="invoice-${Date.now()}.pdf"`,
       },
     });
 
   } catch (error) {
     return new Response(
       JSON.stringify({ error: error.message }),
-      { 
-        status: 500, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      }
+      {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
     );
   }
 });
