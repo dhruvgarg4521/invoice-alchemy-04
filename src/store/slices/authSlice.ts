@@ -1,7 +1,5 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
-import axios from 'axios';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+import { supabase } from '@/integrations/supabase/client';
 
 interface User {
   id: string;
@@ -30,10 +28,10 @@ interface RegisterData {
 
 const initialState: AuthState = {
   user: null,
-  token: localStorage.getItem('token'),
+  token: null,
   isLoading: false,
   error: null,
-  isAuthenticated: !!localStorage.getItem('token'),
+  isAuthenticated: false,
 };
 
 // Async thunks
@@ -41,12 +39,25 @@ export const loginUser = createAsyncThunk(
   'auth/login',
   async (credentials: LoginCredentials, { rejectWithValue }) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/auth/login`, credentials);
-      const { token, user } = response.data;
-      localStorage.setItem('token', token);
-      return { token, user };
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: credentials.email,
+        password: credentials.password,
+      });
+      
+      if (error) {
+        return rejectWithValue(error.message);
+      }
+      
+      return { 
+        token: data.session?.access_token || '', 
+        user: {
+          id: data.user?.id || '',
+          name: data.user?.user_metadata?.name || data.user?.email || '',
+          email: data.user?.email || '',
+        }
+      };
     } catch (error: any) {
-      return rejectWithValue(error.response?.data?.message || 'Login failed');
+      return rejectWithValue(error.message || 'Login failed');
     }
   }
 );
@@ -55,10 +66,24 @@ export const registerUser = createAsyncThunk(
   'auth/register',
   async (userData: RegisterData, { rejectWithValue }) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/auth/register`, userData);
-      return response.data.message;
+      const { error } = await supabase.auth.signUp({
+        email: userData.email,
+        password: userData.password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/`,
+          data: {
+            name: userData.name,
+          }
+        }
+      });
+      
+      if (error) {
+        return rejectWithValue(error.message);
+      }
+      
+      return 'Registration successful! Please check your email to verify your account.';
     } catch (error: any) {
-      return rejectWithValue(error.response?.data?.message || 'Registration failed');
+      return rejectWithValue(error.message || 'Registration failed');
     }
   }
 );
@@ -66,7 +91,7 @@ export const registerUser = createAsyncThunk(
 export const logoutUser = createAsyncThunk(
   'auth/logout',
   async () => {
-    localStorage.removeItem('token');
+    await supabase.auth.signOut();
     return null;
   }
 );
