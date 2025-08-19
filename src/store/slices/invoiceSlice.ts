@@ -1,7 +1,5 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
-import axios from 'axios';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+import { supabase } from '@/integrations/supabase/client';
 
 export interface Product {
   id: string;
@@ -46,29 +44,34 @@ export const generatePDF = createAsyncThunk(
   'invoice/generatePDF',
   async (_, { getState, rejectWithValue }) => {
     try {
-      const state = getState() as { invoice: InvoiceState; auth: { token: string } };
-      const response = await axios.post(
-        `${API_BASE_URL}/invoice/generate-pdf`,
-        {
+      const state = getState() as { invoice: InvoiceState; auth: { user: any } };
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError || !user) {
+        return rejectWithValue('Authentication required');
+      }
+
+      const response = await supabase.functions.invoke('generate-pdf', {
+        body: {
           products: state.invoice.products,
           subtotal: state.invoice.subtotal,
           totalGst: state.invoice.totalGst,
           grandTotal: state.invoice.grandTotal,
+          userEmail: user.email,
+          userName: user.user_metadata?.name || user.email,
         },
-        {
-          headers: {
-            Authorization: `Bearer ${state.auth.token}`,
-          },
-          responseType: 'blob',
-        }
-      );
-      
+      });
+
+      if (response.error) {
+        return rejectWithValue(response.error.message || 'PDF generation failed');
+      }
+
       // Create blob URL for download
-      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const blob = new Blob([response.data], { type: 'text/html' });
       const url = window.URL.createObjectURL(blob);
       return url;
     } catch (error: any) {
-      return rejectWithValue(error.response?.data?.message || 'PDF generation failed');
+      return rejectWithValue(error.message || 'PDF generation failed');
     }
   }
 );
